@@ -176,6 +176,14 @@ test('resumen cuenta sellos, altas y canjes del día en la zona horaria del come
   assert.deepEqual(await repo.resumen(), { sellosHoy: 3, clientesNuevos: 1, canjes: 1 })
 })
 
+test('el día empieza a medianoche de Santiago de Chile (UTC-3 en verano, UTC-4 en invierno)', async () => {
+  const { inicioDelDia } = await import('./tiempo.ts')
+  const tz = 'America/Santiago'
+  assert.equal(inicioDelDia(new Date('2026-11-12T01:00:00Z'), tz).toISOString(), '2026-11-11T03:00:00.000Z')
+  assert.equal(inicioDelDia(new Date('2026-11-12T03:30:00Z'), tz).toISOString(), '2026-11-12T03:00:00.000Z')
+  assert.equal(inicioDelDia(new Date('2026-07-15T12:00:00Z'), tz).toISOString(), '2026-07-15T04:00:00.000Z')
+})
+
 test('el día empieza a medianoche de Madrid (UTC+1 en invierno, UTC+2 en verano)', async () => {
   const { inicioDelDia } = await import('./tiempo.ts')
   const tz = 'Europe/Madrid'

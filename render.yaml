@@ -16,7 +16,7 @@ services:
       - key: DB_NAME
         value: fidelhop
       - key: TZ_COMERCIO
-        value: Europe/Madrid
+        value: America/Santiago
       - key: SESSION_SECRET
         generateValue: true
       # Secretos: Render los pide al crear el Blueprint (nunca van en el repositorio).

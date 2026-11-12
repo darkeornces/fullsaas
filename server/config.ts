@@ -25,7 +25,7 @@ export function construirConfig(env: Record<string, string | undefined>): Config
     enlaceEsperaMinutos: 60,
     sesionHoras: 12,
     clienteSesionDias: 180,
-    zonaHoraria: env.TZ_COMERCIO ?? 'Europe/Madrid',
+    zonaHoraria: env.TZ_COMERCIO ?? 'America/Santiago',
     pin: env.CAJA_PIN,
     sessionSecret: env.SESSION_SECRET ?? randomBytes(32).toString('hex'),
     baseUrl,

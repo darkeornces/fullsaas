@@ -45,3 +45,7 @@ test('lee el resto de variables: puerto, Mongo, base, proxy y zona horaria', () 
   assert.equal(c.zonaHoraria, 'America/Santiago')
   assert.equal(c.cookieSecure, false)
 })
+
+test('la zona horaria por defecto es la de la tienda: America/Santiago', () => {
+  assert.equal(construirConfig(base).zonaHoraria, 'America/Santiago')
+})
