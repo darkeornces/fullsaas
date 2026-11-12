@@ -69,6 +69,7 @@ Solo frontend, datos de mentira en el código. Sin Express, Mongo ni Docker.
   - Pendiente: revisión visual con captura (el navegador de Pencil dio timeout); pantalla de WhatsApp del diseño (ya no aplica: no hay envío de tarjeta por enlace); landing
   - El código del pedido y del cliente se teclea; la cámara es B6
 - [x] B6. **Escáner de la caja** (`/caja/escanear`, `qr-scanner`): lee el QR de la tarjeta del cliente (`CL-XXXX`) y abre su ficha; rechaza QR que no son de un cliente (p. ej. enlaces de sello). Probado con cámara falsa en Chromium. En celular real exige HTTPS (o localhost) y permiso de cámara. Pendiente: la pantalla del cliente `/app/escanear` aún tiene un visor decorativo sin cámara (solo funciona pegando el enlace)
+- [x] B6d. **Correo de acceso a la tienda**: login = correo + PIN (error genérico `CREDENCIALES_INCORRECTAS`, no revela cuál falló; el correo no distingue mayúsculas; los intentos fallidos cuentan para el bloqueo de 5). Se define y cambia en Opciones (`ajustes.correo` en Mongo, `PUT /api/caja/ajustes`); opcionalmente se siembra con `CAJA_EMAIL`. Mientras no haya correo, se entra solo con PIN (compatibilidad con producción). `GET /api/caja/acceso` (público) dice si hay que pedir correo. No envía ni verifica correos. Recuperación si se olvida: quitar el campo `correo` de `ajustes` en Mongo. Portada: se quitó el botón "Soy cliente"; queda "Ingresar a la tienda"
 - [x] B6c. **Nombre de la tienda editable** (Opciones de la caja): campo de 1 a 40 caracteres (se recorta y colapsan espacios; sin saltos de línea). Guarda en `ajustes.nombre` de Mongo (`PUT /api/caja/ajustes` acepta `nombre` y/o `enlaceEsperaMinutos`, actualización parcial). Se refleja en la sesión de caja, la tarjeta y pantalla de sello del cliente, el QR/ticket y el mensaje de WhatsApp. El valor de `config.nombre` ('Casa Lola') es el inicial y el respaldo si el de Mongo falta o es inválido. `init` añade el nombre a ajustes antiguos sin pisar uno cambiado
 - [x] B6b. **Opciones de la caja** (`/caja/opciones`, engranaje en el inicio): interruptor para quitar o activar la espera entre códigos y minutos (atajos 15 min / 30 min / 1 h / 2 h o un valor de 1 a 1440). Guarda en `ajustes` de Mongo (`GET/PUT /api/caja/ajustes`, validado en el servidor); se aplica al instante. Con 0, cada vez que se genera un código se crea uno nuevo y el anterior sin usar queda anulado
 - [ ] B7. PWA instalable: manifest, iconos, service worker (tarjeta/QR offline)
@@ -81,7 +82,7 @@ Solo frontend, datos de mentira en el código. Sin Express, Mongo ni Docker.
 - [ ] B10. Verificar en Render: flujo completo en celular real, cámara, PWA, Lighthouse
 
 ## Tests (TDD)
-- `pnpm test` (node:test, 108 tests; sin dependencias extra) y `pnpm typecheck` (tsc). Necesita Mongo real: contenedor `fidelhop-mongo-test` (`docker run -d --name fidelhop-mongo-test -p 127.0.0.1:27017:27017 mongo:7`)
+- `pnpm test` (node:test, 124 tests; sin dependencias extra) y `pnpm typecheck` (tsc). Necesita Mongo real: contenedor `fidelhop-mongo-test` (`docker run -d --name fidelhop-mongo-test -p 127.0.0.1:27017:27017 mongo:7`)
 - Antes de producción: `TRUST_PROXY=1` detrás del túnel, para que el límite de intentos use la IP real
 
 ## Review

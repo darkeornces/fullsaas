@@ -1,5 +1,6 @@
 export interface Config {
   nombre: string
+  correo: string | null
   premio: string
   sellosRequeridos: number
   enlaceVigenciaHoras: number

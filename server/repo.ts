@@ -1,6 +1,7 @@
 import { randomBytes, randomInt } from 'node:crypto'
 import type { Db } from 'mongodb'
 import { AppError } from './errors.ts'
+import { correoValido } from './correo.ts'
 import { inicioDelDia } from './tiempo.ts'
 import type { Cliente, Config, Enlace, Movimiento, Resumen } from './tipos.ts'
 
@@ -22,11 +23,11 @@ export function normalizarWhatsapp(entrada: unknown): string {
 
 export type Repo = ReturnType<typeof createRepo>
 
-export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'sellosRequeridos' | 'enlaceVigenciaHoras' | 'enlaceEsperaMinutos' | 'zonaHoraria'>, now: () => Date = () => new Date()) {
+export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'correo' | 'sellosRequeridos' | 'enlaceVigenciaHoras' | 'enlaceEsperaMinutos' | 'zonaHoraria'>, now: () => Date = () => new Date()) {
   const clientes = db.collection<Cliente & { ultimoEnlace?: { codigo: string; creadoEn: Date } }>('clientes')
   const enlaces = db.collection<Enlace>('enlaces')
   const movimientos = db.collection('movimientos')
-  const ajustes = db.collection<{ _id: string; enlaceEsperaMinutos?: unknown; nombre?: unknown }>('ajustes')
+  const ajustes = db.collection<{ _id: string; enlaceEsperaMinutos?: unknown; nombre?: unknown; correo?: unknown }>('ajustes')
 
   const registrar = (tipo: Movimiento['tipo'], datos: Record<string, unknown>) => movimientos.insertOne({ tipo, fecha: now(), ...datos })
 
@@ -40,6 +41,7 @@ export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'sellosRequer
     await movimientos.createIndex({ fecha: -1 })
     await ajustes.updateOne({ _id: 'general' }, { $setOnInsert: { enlaceEsperaMinutos: config.enlaceEsperaMinutos } }, { upsert: true })
     await ajustes.updateOne({ _id: 'general', nombre: { $exists: false } }, { $set: { nombre: config.nombre } })
+    if (config.correo) await ajustes.updateOne({ _id: 'general', correo: { $exists: false } }, { $set: { correo: config.correo } })
   }
 
   const obtenerPorCodigo = (codigo: string) => clientes.findOne({ codigo }, SIN_INTERNOS)
@@ -102,21 +104,25 @@ export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'sellosRequer
     return limpio.length >= 1 && limpio.length <= 40 ? limpio : null
   }
 
-  async function leerAjustes(): Promise<{ enlaceEsperaMinutos: number; nombre: string }> {
+  type Ajustes = { enlaceEsperaMinutos: number; nombre: string; correo?: string }
+
+  async function leerAjustes(): Promise<Ajustes> {
     const doc = await ajustes.findOne({ _id: 'general' })
     const espera = doc?.enlaceEsperaMinutos
+    const correo = correoValido(doc?.correo) ?? config.correo
     return {
       enlaceEsperaMinutos: typeof espera === 'number' && Number.isFinite(espera) && espera >= 0 ? espera : config.enlaceEsperaMinutos,
       nombre: nombreValido(doc?.nombre) ?? config.nombre,
+      ...(correo ? { correo } : {}),
     }
   }
 
   const esperaMinutos = async (): Promise<number> => (await leerAjustes()).enlaceEsperaMinutos
   const obtenerAjustes = leerAjustes
 
-  async function guardarAjustes(entrada: unknown): Promise<{ enlaceEsperaMinutos: number; nombre: string }> {
-    const cuerpo = (entrada ?? {}) as { enlaceEsperaMinutos?: unknown; nombre?: unknown }
-    const cambios: { enlaceEsperaMinutos?: number; nombre?: string } = {}
+  async function guardarAjustes(entrada: unknown): Promise<Ajustes> {
+    const cuerpo = (entrada ?? {}) as { enlaceEsperaMinutos?: unknown; nombre?: unknown; correo?: unknown }
+    const cambios: { enlaceEsperaMinutos?: number; nombre?: string; correo?: string } = {}
     if (cuerpo.enlaceEsperaMinutos !== undefined) {
       const v = cuerpo.enlaceEsperaMinutos
       if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 1440) throw new AppError('DATOS_INVALIDOS')
@@ -126,6 +132,11 @@ export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'sellosRequer
       const n = nombreValido(cuerpo.nombre)
       if (n === null) throw new AppError('DATOS_INVALIDOS')
       cambios.nombre = n
+    }
+    if (cuerpo.correo !== undefined) {
+      const c = correoValido(cuerpo.correo)
+      if (c === null) throw new AppError('DATOS_INVALIDOS')
+      cambios.correo = c
     }
     if (Object.keys(cambios).length === 0) throw new AppError('DATOS_INVALIDOS')
     await ajustes.updateOne({ _id: 'general' }, { $set: cambios }, { upsert: true })

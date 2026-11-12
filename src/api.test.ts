@@ -81,6 +81,26 @@ test('guardarAjustes puede enviar solo el nombre', async () => {
   assert.equal(r.nombre, 'Café Sol')
 })
 
+test('login envía el correo solo cuando se indica, y acceso consulta si hace falta', async () => {
+  const { api, llamadas } = falso(respuesta(200, { ok: true }), respuesta(200, { ok: true }), respuesta(200, { pideCorreo: true }))
+  await api.login('4321')
+  await api.login('4321', 'a@b.co')
+  assert.deepEqual(await api.acceso(), { pideCorreo: true })
+  assert.deepEqual(JSON.parse(primera(llamadas).body ?? ''), { pin: '4321' })
+  assert.deepEqual(JSON.parse(llamadas[1]?.body ?? ''), { pin: '4321', correo: 'a@b.co' })
+  assert.equal(llamadas[2]?.url, '/api/caja/acceso')
+})
+
+test('guardarAjustes puede enviar solo el correo', async () => {
+  const { api, llamadas } = falso(respuesta(200, { enlaceEsperaMinutos: 60, nombre: 'X', correo: 'a@b.co' }))
+  await api.guardarAjustes({ correo: 'a@b.co' })
+  assert.deepEqual(JSON.parse(primera(llamadas).body ?? ''), { correo: 'a@b.co' })
+})
+
+test('el mensaje de credenciales incorrectas menciona correo y PIN', () => {
+  assert.match(mensajeError('CREDENCIALES_INCORRECTAS'), /correo.*PIN|PIN.*correo/i)
+})
+
 test('login envía el PIN', async () => {
   const { api, llamadas } = falso(respuesta(200, { ok: true }))
   await api.login('4321')
@@ -144,7 +164,7 @@ test('el mensaje de espera indica los minutos y su singular', () => {
 test('mensajeError traduce los códigos y tiene mensaje por defecto', () => {
   assert.match(mensajeError('ENLACE_USADO'), /ya se usó/i)
   assert.match(mensajeError('TARJETA_COMPLETA'), /canje/i)
-  assert.match(mensajeError('PIN_INCORRECTO'), /PIN/)
+  assert.match(mensajeError('CREDENCIALES_INCORRECTAS'), /PIN/)
   assert.match(mensajeError('SIN_CONEXION'), /conexión/i)
   assert.match(mensajeError('WHATSAPP_INVALIDO'), /\+34/)
   assert.ok(mensajeError('CODIGO_RARO').length > 5)

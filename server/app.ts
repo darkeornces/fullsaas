@@ -71,13 +71,21 @@ export function createApp({ repo, config, now = () => new Date() }: Deps) {
   app.get('/healthz', (req, res) => { res.json({ ok: true }) })
 
   // ---------- caja: sesión ----------
-  app.post('/api/caja/login', (req, res) => {
+  app.get('/api/caja/acceso', async (req, res) => {
+    res.json({ pideCorreo: Boolean((await repo.obtenerAjustes()).correo) })
+  })
+
+  app.post('/api/caja/login', async (req, res) => {
     const ip = ipDe(req)
     if (limitePin.bloqueado(ip)) throw new AppError('DEMASIADOS_INTENTOS')
     const pin: unknown = req.body?.pin
-    if (typeof pin !== 'string' || !iguales(pin, config.pin)) {
+    const correoEsperado = (await repo.obtenerAjustes()).correo
+    const correoRecibido: unknown = req.body?.correo
+    const pinOk = typeof pin === 'string' && iguales(pin, config.pin)
+    const correoOk = !correoEsperado || (typeof correoRecibido === 'string' && iguales(correoRecibido.trim().toLowerCase(), correoEsperado))
+    if (!pinOk || !correoOk) {
       limitePin.registrar(ip)
-      res.status(401).json({ error: 'PIN_INCORRECTO' })
+      res.status(401).json({ error: 'CREDENCIALES_INCORRECTAS' })
       return
     }
     limitePin.reiniciar(ip)

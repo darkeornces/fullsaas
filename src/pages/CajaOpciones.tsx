@@ -16,6 +16,7 @@ export default function CajaOpciones() {
   const [activa, setActiva] = useState<boolean | null>(null)
   const [minutos, setMinutos] = useState('')
   const [nombre, setNombre] = useState<string | null>(null)
+  const [correo, setCorreo] = useState<string | null>(null)
   const [guardado, setGuardado] = useState(false)
   const { error: errorGuardar, ocupado, ejecutar } = useAccion()
 
@@ -32,13 +33,18 @@ export default function CajaOpciones() {
   const nombreLimpio = nombreActual.trim().replace(/\s+/g, ' ')
   const nombreValido = nombreLimpio.length >= 1 && nombreLimpio.length <= MAX_NOMBRE
 
-  const cambiado = nombreLimpio !== datos.nombre || (estaActiva ? numero : 0) !== espera
-  const puedeGuardar = esperaValida && nombreValido && cambiado
+  const correoActual = correo ?? datos.correo ?? ''
+  const correoLimpio = correoActual.trim().toLowerCase()
+  const correoValido = correoLimpio === '' ? !datos.correo : /^[^\s@]+@[^\s@.]+(\.[^\s@.]{2,})+$/.test(correoLimpio)
+  const correoCambiado = correoLimpio !== '' && correoLimpio !== (datos.correo ?? '')
+
+  const cambiado = nombreLimpio !== datos.nombre || (estaActiva ? numero : 0) !== espera || correoCambiado
+  const puedeGuardar = esperaValida && nombreValido && correoValido && cambiado
 
   const guardar = async () => {
     setGuardado(false)
-    const r = await ejecutar(() => api.guardarAjustes({ nombre: nombreLimpio, enlaceEsperaMinutos: estaActiva ? numero : 0 }))
-    if (r) { setGuardado(true); setNombre(r.nombre); recargar() }
+    const r = await ejecutar(() => api.guardarAjustes({ nombre: nombreLimpio, enlaceEsperaMinutos: estaActiva ? numero : 0, ...(correoCambiado ? { correo: correoLimpio } : {}) }))
+    if (r) { setGuardado(true); setNombre(r.nombre); setCorreo(r.correo ?? null); recargar() }
   }
   const tocar = () => setGuardado(false)
 
@@ -63,6 +69,23 @@ export default function CajaOpciones() {
           {!nombreValido ? <span className="text-[#b23a17]">Escribe un nombre (hasta {MAX_NOMBRE} caracteres).</span> : <span />}
           <span className="text-muted">{nombreActual.length}/{MAX_NOMBRE}</span>
         </div>
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-5">
+        <div>
+          <h2 className="font-head text-lg font-bold">Correo de acceso</h2>
+          <p className="mt-1 text-sm text-muted">
+            {datos.correo
+              ? 'Para entrar a la tienda se pide este correo y el PIN.'
+              : 'Aún no hay correo: hoy se entra solo con el PIN. Si lo defines, se pedirá correo y PIN.'}
+          </p>
+        </div>
+        <input
+          id="correo" type="email" inputMode="email" aria-label="Correo de acceso" autoComplete="off" placeholder="tu@correo.com"
+          value={correoActual} onChange={(e) => { setCorreo(e.target.value); tocar() }}
+          className="w-full rounded-2xl border-2 border-line bg-bg px-4 py-3 text-lg focus:border-green focus:outline-none"
+        />
+        {!correoValido && <p className="text-xs text-[#b23a17]">Escribe un correo válido, por ejemplo tu@correo.com.</p>}
       </section>
 
       <section className="flex flex-col gap-4 rounded-3xl border border-line bg-surface p-5">

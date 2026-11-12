@@ -4,7 +4,7 @@ import { MongoClient, type Db } from 'mongodb'
 import { createRepo, type Repo } from './repo.ts'
 
 const URL = process.env.TEST_MONGO_URL ?? 'mongodb://127.0.0.1:27017'
-const config = { sellosRequeridos: 3, nombre: 'Casa Lola', enlaceVigenciaHoras: 48, enlaceEsperaMinutos: 60, zonaHoraria: 'Europe/Madrid' }
+const config = { sellosRequeridos: 3, nombre: 'Casa Lola', correo: null, enlaceVigenciaHoras: 48, enlaceEsperaMinutos: 60, zonaHoraria: 'Europe/Madrid' }
 let client: MongoClient, db: Db, repo: Repo, ahora: Date
 
 before(async () => {
@@ -373,4 +373,35 @@ test('un nombre inválido en Mongo usa el de la configuración', async () => {
     await fijarNombre(malo)
     assert.equal((await repo.obtenerAjustes()).nombre, 'Casa Lola')
   }
+})
+
+// ---------- correo de acceso de la tienda ----------
+test('sin correo configurado, los ajustes no incluyen el campo correo', async () => {
+  assert.equal('correo' in (await repo.obtenerAjustes()), false)
+})
+
+test('guardarAjustes guarda el correo normalizado sin tocar nombre ni espera', async () => {
+  await fijarEspera(15)
+  const r = await repo.guardarAjustes({ correo: '  Dueno@Tienda.CL ' })
+  assert.deepEqual(r, { enlaceEsperaMinutos: 15, nombre: 'Casa Lola', correo: 'dueno@tienda.cl' })
+  assert.deepEqual(await repo.obtenerAjustes(), { enlaceEsperaMinutos: 15, nombre: 'Casa Lola', correo: 'dueno@tienda.cl' })
+})
+
+test('guardarAjustes rechaza correos inválidos', async () => {
+  for (const malo of ['', 'abc', 'a@b', 5, null, {}]) await falla(repo.guardarAjustes({ correo: malo }), 'DATOS_INVALIDOS')
+  assert.equal('correo' in (await repo.obtenerAjustes()), false)
+})
+
+test('init siembra el correo de la configuración (CAJA_EMAIL) sin pisar uno ya cambiado', async () => {
+  const conCorreo = createRepo(db, { ...config, correo: 'Inicial@Tienda.cl' }, () => ahora)
+  await conCorreo.init()
+  assert.equal((await conCorreo.obtenerAjustes()).correo, 'inicial@tienda.cl')
+  await repo.guardarAjustes({ correo: 'nuevo@tienda.cl' })
+  await conCorreo.init()
+  assert.equal((await conCorreo.obtenerAjustes()).correo, 'nuevo@tienda.cl')
+})
+
+test('un correo inválido guardado en Mongo se ignora', async () => {
+  await ajustes().updateOne({ _id: 'general' }, { $set: { correo: 'basura' } })
+  assert.equal('correo' in (await repo.obtenerAjustes()), false)
 })

@@ -11,7 +11,7 @@ const URL = process.env.TEST_MONGO_URL ?? 'mongodb://127.0.0.1:27017'
 const config: Config = {
   nombre: 'Casa Lola', premio: 'almuerzo gratis', sellosRequeridos: 3, enlaceVigenciaHoras: 48, enlaceEsperaMinutos: 60,
   pin: '4321', sessionSecret: 'secreto-de-prueba', sesionHoras: 12, clienteSesionDias: 180, cookieSecure: false,
-  baseUrl: 'https://fidelhop.test', trustProxy: false, zonaHoraria: 'Europe/Madrid',
+  baseUrl: 'https://fidelhop.test', trustProxy: false, zonaHoraria: 'Europe/Madrid', correo: null,
   mongoUrl: '', dbName: '', port: 0,
 }
 let client: MongoClient, db: Db, server: Server | undefined, base: string, ahora: Date
@@ -51,8 +51,8 @@ const api = async (ruta: string, { metodo = 'GET', cuerpo, cookie, crudo }: Opci
   return { status: res.status, headers: res.headers, json: texto ? JSON.parse(texto) : null, texto }
 }
 const cookieDe = (r: Resp) => r.headers.get('set-cookie')?.split(';')[0] ?? ''
-const login = async (pin = config.pin) => {
-  const r = await api('/api/caja/login', { metodo: 'POST', cuerpo: { pin } })
+const login = async (pin = config.pin, correo?: string) => {
+  const r = await api('/api/caja/login', { metodo: 'POST', cuerpo: correo === undefined ? { pin } : { pin, correo } })
   return { r, cookie: cookieDe(r) }
 }
 const conSesion = async () => (await login()).cookie
@@ -417,4 +417,52 @@ test('nombre inválido en ajustes da 400 y no cambia nada', async () => {
     assert.equal(r.json.error, 'DATOS_INVALIDOS')
   }
   assert.equal((await api('/api/caja/sesion', { cookie })).json.comercio, 'Casa Lola')
+})
+
+// ---------- correo de acceso ----------
+const ponerCorreo = async (correo: string) => {
+  const cookie = await conSesion()
+  const r = await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { correo } })
+  assert.equal(r.status, 200)
+}
+
+test('acceso (público) indica si hay que escribir el correo; sin correo, el PIN basta', async () => {
+  assert.deepEqual((await api('/api/caja/acceso')).json, { pideCorreo: false })
+  assert.equal((await login()).r.status, 200)
+  assert.equal((await login(config.pin, 'cualquiera@x.cl')).r.status, 200)
+})
+
+test('con correo configurado el login exige correo y PIN (el correo no distingue mayúsculas)', async () => {
+  await ponerCorreo('Dueno@Tienda.cl')
+  assert.deepEqual((await api('/api/caja/acceso')).json, { pideCorreo: true })
+  assert.equal((await login()).r.status, 401)
+  assert.equal((await login(config.pin, 'otro@tienda.cl')).r.status, 401)
+  assert.equal((await login('0000', 'dueno@tienda.cl')).r.status, 401)
+  assert.equal((await login(config.pin, '  DUENO@tienda.CL ')).r.status, 200)
+})
+
+test('el error no revela si falló el correo o el PIN, ni deja cookie', async () => {
+  await ponerCorreo('dueno@tienda.cl')
+  const mal1 = (await login(config.pin, 'otro@tienda.cl')).r
+  const mal2 = (await login('0000', 'dueno@tienda.cl')).r
+  assert.equal(mal1.json.error, 'CREDENCIALES_INCORRECTAS')
+  assert.deepEqual(mal1.json, mal2.json)
+  assert.equal(mal1.headers.get('set-cookie'), null)
+})
+
+test('equivocarse de correo también cuenta para el bloqueo de 5 intentos', async () => {
+  await ponerCorreo('dueno@tienda.cl')
+  for (let i = 0; i < 5; i++) assert.equal((await login(config.pin, 'x@tienda.cl')).r.status, 401)
+  assert.equal((await login(config.pin, 'dueno@tienda.cl')).r.status, 429)
+})
+
+test('el correo solo se cambia con sesión de caja y debe ser válido', async () => {
+  assert.equal((await api('/api/caja/ajustes', { metodo: 'PUT', cuerpo: { correo: 'a@b.cl' } })).status, 401)
+  const cookie = await conSesion()
+  for (const malo of ['', 'abc', 'a@b', 5, null]) {
+    assert.equal((await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { correo: malo } })).status, 400)
+  }
+  const ok = await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { correo: 'Dueno@Tienda.cl' } })
+  assert.equal(ok.json.correo, 'dueno@tienda.cl')
+  assert.equal((await api('/api/caja/ajustes', { cookie })).json.correo, 'dueno@tienda.cl')
 })

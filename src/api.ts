@@ -14,7 +14,7 @@ export class ApiError extends Error {
 }
 
 const MENSAJES: Record<string, string> = {
-  PIN_INCORRECTO: 'PIN incorrecto.',
+  CREDENCIALES_INCORRECTAS: 'Correo o PIN incorrectos.',
   DEMASIADOS_INTENTOS: 'Demasiados intentos. Espera unos minutos.',
   NO_AUTORIZADO: 'Tu sesión caducó. Vuelve a entrar.',
   NO_ENCONTRADO: 'No encontramos ese cliente.',
@@ -87,7 +87,8 @@ export function createApi(fetchImpl: typeof fetch = (...a) => globalThis.fetch(.
     tarjeta: () => pedir<Tarjeta>('/tarjeta'),
     usarEnlace: (codigo: string) => post<Tarjeta>(`/enlaces/${encodeURIComponent(codigo)}/usar`),
 
-    login: (pin: string) => post<{ ok: true }>('/caja/login', { pin }),
+    acceso: () => pedir<{ pideCorreo: boolean }>('/caja/acceso'),
+    login: (pin: string, correo?: string) => post<{ ok: true }>('/caja/login', correo === undefined ? { pin } : { pin, correo }),
     logout: () => post<{ ok: true }>('/caja/logout'),
     sesion: () => pedir<SesionCaja>('/caja/sesion').catch((e: unknown) => (e instanceof ApiError && e.status === 401 ? null : Promise.reject(e))),
     resumen: () => pedir<Resumen>('/caja/resumen'),

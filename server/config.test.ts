@@ -49,3 +49,9 @@ test('lee el resto de variables: puerto, Mongo, base, proxy y zona horaria', () 
 test('la zona horaria por defecto es la de la tienda: America/Santiago', () => {
   assert.equal(construirConfig(base).zonaHoraria, 'America/Santiago')
 })
+
+test('CAJA_EMAIL es opcional, se normaliza y debe ser un correo válido', () => {
+  assert.equal(construirConfig(base).correo, null)
+  assert.equal(construirConfig({ ...base, CAJA_EMAIL: '  Dueno@Tienda.CL ' }).correo, 'dueno@tienda.cl')
+  assert.throws(() => construirConfig({ ...base, CAJA_EMAIL: 'no-es-correo' }), /CAJA_EMAIL/)
+})

@@ -1,8 +1,12 @@
 import { randomBytes } from 'node:crypto'
+import { correoValido } from './correo.ts'
 import type { Config } from './tipos.ts'
 
 export function construirConfig(env: Record<string, string | undefined>): Config {
   if (!env.CAJA_PIN) throw new Error('Falta CAJA_PIN: define el PIN de la caja (no hay valor por defecto).')
+
+  const correo = env.CAJA_EMAIL ? correoValido(env.CAJA_EMAIL) : null
+  if (env.CAJA_EMAIL && !correo) throw new Error('CAJA_EMAIL no es un correo válido.')
 
   const produccion = env.NODE_ENV === 'production'
   const baseUrl = (env.BASE_URL ?? 'http://localhost:3000').replace(/\/$/, '')
@@ -19,6 +23,7 @@ export function construirConfig(env: Record<string, string | undefined>): Config
 
   return {
     nombre: 'Casa Lola',
+    correo,
     premio: 'almuerzo gratis',
     sellosRequeridos: 10,
     enlaceVigenciaHoras: 48,
