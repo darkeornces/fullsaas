@@ -17,6 +17,10 @@ try {
 const client = await MongoClient.connect(config.mongoUrl)
 const repo = createRepo(client.db(config.dbName), config)
 await repo.init()
+if (!(await repo.tieneCredenciales())) {
+  console.error('No hay correo y PIN de la tienda en la base. Define CAJA_EMAIL y CAJA_PIN para guardarlos la primera vez.')
+  process.exit(1)
+}
 
 const app = createApp({ repo, config })
 

@@ -2,6 +2,7 @@ import { randomBytes, randomInt } from 'node:crypto'
 import type { Db } from 'mongodb'
 import { AppError } from './errors.ts'
 import { correoValido } from './correo.ts'
+import { hashPin, verificarPin } from './pin.ts'
 import { inicioDelDia } from './tiempo.ts'
 import type { Cliente, Config, Enlace, Movimiento, Resumen } from './tipos.ts'
 
@@ -23,11 +24,11 @@ export function normalizarWhatsapp(entrada: unknown): string {
 
 export type Repo = ReturnType<typeof createRepo>
 
-export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'correo' | 'sellosRequeridos' | 'enlaceVigenciaHoras' | 'enlaceEsperaMinutos' | 'zonaHoraria'>, now: () => Date = () => new Date()) {
+export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'correo' | 'pin' | 'sellosRequeridos' | 'enlaceVigenciaHoras' | 'enlaceEsperaMinutos' | 'zonaHoraria'>, now: () => Date = () => new Date()) {
   const clientes = db.collection<Cliente & { ultimoEnlace?: { codigo: string; creadoEn: Date } }>('clientes')
   const enlaces = db.collection<Enlace>('enlaces')
   const movimientos = db.collection('movimientos')
-  const ajustes = db.collection<{ _id: string; enlaceEsperaMinutos?: unknown; nombre?: unknown; correo?: unknown }>('ajustes')
+  const ajustes = db.collection<{ _id: string; enlaceEsperaMinutos?: unknown; nombre?: unknown; correo?: unknown; pinHash?: unknown }>('ajustes')
 
   const registrar = (tipo: Movimiento['tipo'], datos: Record<string, unknown>) => movimientos.insertOne({ tipo, fecha: now(), ...datos })
 
@@ -42,6 +43,7 @@ export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'correo' | 's
     await ajustes.updateOne({ _id: 'general' }, { $setOnInsert: { enlaceEsperaMinutos: config.enlaceEsperaMinutos } }, { upsert: true })
     await ajustes.updateOne({ _id: 'general', nombre: { $exists: false } }, { $set: { nombre: config.nombre } })
     if (config.correo) await ajustes.updateOne({ _id: 'general', correo: { $exists: false } }, { $set: { correo: config.correo } })
+    await ajustes.updateOne({ _id: 'general', pinHash: { $exists: false } }, { $set: { pinHash: hashPin(config.pin) } })
   }
 
   const obtenerPorCodigo = (codigo: string) => clientes.findOne({ codigo }, SIN_INTERNOS)
@@ -143,17 +145,24 @@ export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'correo' | 's
     return leerAjustes()
   }
 
-  async function vincularCorreoSiFalta(entrada: unknown): Promise<string> {
-    const nuevo = correoValido(entrada)
-    if (nuevo === null) throw new AppError('DATOS_INVALIDOS')
-    await ajustes.updateOne(
-      { _id: 'general', correo: { $not: /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/ } },
-      { $set: { correo: nuevo } },
-      { upsert: false },
-    )
-    const registrado = (await leerAjustes()).correo
-    if (!registrado) throw new AppError('DATOS_INVALIDOS')
-    return registrado
+  async function verificarCredenciales(correo: unknown, pin: unknown): Promise<boolean> {
+    const doc = await ajustes.findOne({ _id: 'general' })
+    const esperado = (await leerAjustes()).correo
+    const recibido = correoValido(correo)
+    const pinOk = verificarPin(pin, doc?.pinHash)
+    return pinOk && esperado !== undefined && recibido !== null && recibido === esperado
+  }
+
+  async function tieneCredenciales(): Promise<boolean> {
+    const doc = await ajustes.findOne({ _id: 'general' })
+    return Boolean((await leerAjustes()).correo) && typeof doc?.pinHash === 'string'
+  }
+
+  async function cambiarPin(actual: unknown, nuevo: unknown): Promise<void> {
+    const doc = await ajustes.findOne({ _id: 'general' })
+    if (!verificarPin(actual, doc?.pinHash)) throw new AppError('CREDENCIALES_INCORRECTAS')
+    if (typeof nuevo !== 'string' || nuevo.length < 6 || nuevo.length > 64) throw new AppError('DATOS_INVALIDOS')
+    await ajustes.updateOne({ _id: 'general' }, { $set: { pinHash: hashPin(nuevo) } })
   }
 
   const vigencia = (desde: Date) => new Date(desde.getTime() + config.enlaceVigenciaHoras * 3_600_000)
@@ -232,6 +241,6 @@ export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'correo' | 's
 
   return {
     init, entrar, buscar, obtenerPorCodigo,
-    sumarSello, canjear, crearEnlace, usarEnlace, movimientos: listarMovimientos, resumen, obtenerAjustes, guardarAjustes, vincularCorreoSiFalta,
+    sumarSello, canjear, crearEnlace, usarEnlace, movimientos: listarMovimientos, resumen, obtenerAjustes, guardarAjustes, verificarCredenciales, tieneCredenciales, cambiarPin,
   }
 }

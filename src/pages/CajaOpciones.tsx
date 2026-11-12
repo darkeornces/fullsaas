@@ -8,6 +8,41 @@ import { Aviso, Cargando, Fallo } from '../components/Estado.tsx'
 import { useCaja } from './CajaGate.tsx'
 
 const ATAJOS = [15, 30, 60, 120]
+
+function CambiarPin() {
+  const [actual, setActual] = useState('')
+  const [nuevo, setNuevo] = useState('')
+  const [repetir, setRepetir] = useState('')
+  const [hecho, setHecho] = useState(false)
+  const { error, ocupado, ejecutar } = useAccion()
+  const valido = actual !== '' && nuevo.length >= 6 && nuevo.length <= 64 && nuevo === repetir
+
+  const cambiar = async () => {
+    setHecho(false)
+    const ok = await ejecutar(async () => { await api.cambiarPin({ pinActual: actual, pinNuevo: nuevo }); return true })
+    if (ok) { setHecho(true); setActual(''); setNuevo(''); setRepetir('') }
+  }
+  const campo = 'w-full rounded-2xl border-2 border-line bg-bg px-4 py-3 text-lg focus:border-green focus:outline-none'
+
+  return (
+    <section className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-5">
+      <div>
+        <h2 className="font-head text-lg font-bold">PIN de acceso</h2>
+        <p className="mt-1 text-sm text-muted">Para cambiarlo hay que escribir el PIN actual. El nuevo debe tener al menos 6 caracteres.</p>
+      </div>
+      <input type="password" aria-label="PIN actual" placeholder="PIN actual" autoComplete="current-password" value={actual} onChange={(e) => { setActual(e.target.value); setHecho(false) }} className={campo} />
+      <input type="password" aria-label="PIN nuevo" placeholder="PIN nuevo" autoComplete="new-password" value={nuevo} onChange={(e) => { setNuevo(e.target.value); setHecho(false) }} className={campo} />
+      <input type="password" aria-label="Repetir PIN nuevo" placeholder="Repite el PIN nuevo" autoComplete="new-password" value={repetir} onChange={(e) => { setRepetir(e.target.value); setHecho(false) }} className={campo} />
+      {nuevo !== '' && nuevo.length < 6 && <p className="text-xs text-[#b23a17]">Mínimo 6 caracteres.</p>}
+      {repetir !== '' && nuevo !== repetir && <p className="text-xs text-[#b23a17]">Los PIN no coinciden.</p>}
+      <Aviso>{error}</Aviso>
+      {hecho && <p role="status" className="rounded-xl bg-mint px-4 py-3 text-sm font-semibold text-green">PIN cambiado ✓</p>}
+      <button onClick={() => void cambiar()} disabled={!valido || ocupado} className="rounded-full border-2 border-green py-3 font-bold text-green disabled:opacity-40">
+        {ocupado ? 'Cambiando…' : 'Cambiar PIN'}
+      </button>
+    </section>
+  )
+}
 const MAX_NOMBRE = 40
 
 export default function CajaOpciones() {
@@ -129,6 +164,8 @@ export default function CajaOpciones() {
           </p>
         )}
       </section>
+
+      <CambiarPin />
 
       <Aviso>{errorGuardar}</Aviso>
       <button

@@ -11,7 +11,6 @@ export const useCaja = () => useOutletContext<CajaCtx>()
 
 export default function CajaGate() {
   const { datos, error, cargando, recargar } = useCarga(() => api.sesion(), [])
-  const { datos: acceso } = useCarga(() => api.acceso(), [])
   const [correo, setCorreo] = useState('')
   const [pin, setPin] = useState('')
   const { error: errorLogin, ocupado, ejecutar } = useAccion()
@@ -34,11 +33,6 @@ export default function CajaGate() {
           value={correo} onChange={(e) => setCorreo(e.target.value)}
           className="rounded-2xl border-2 border-line bg-surface px-4 py-3.5 text-lg focus:border-green focus:outline-none"
         />
-        {acceso && !acceso.correoRegistrado && (
-          <p className="rounded-xl bg-sun/30 px-3 py-2 text-xs">
-            Primera vez: el correo que escribas junto con el PIN quedará asociado a la tienda.
-          </p>
-        )}
         <label className="text-sm font-semibold" htmlFor="pin">PIN de la caja</label>
         <input
           id="pin" type="password" inputMode="numeric" autoComplete="current-password"

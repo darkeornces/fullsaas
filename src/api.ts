@@ -87,9 +87,9 @@ export function createApi(fetchImpl: typeof fetch = (...a) => globalThis.fetch(.
     tarjeta: () => pedir<Tarjeta>('/tarjeta'),
     usarEnlace: (codigo: string) => post<Tarjeta>(`/enlaces/${encodeURIComponent(codigo)}/usar`),
 
-    acceso: () => pedir<{ correoRegistrado: boolean }>('/caja/acceso'),
     login: (pin: string, correo: string) => post<{ ok: true }>('/caja/login', { pin, correo }),
     logout: () => post<{ ok: true }>('/caja/logout'),
+    cambiarPin: (datos: { pinActual: string; pinNuevo: string }) => put<{ ok: true }>('/caja/pin', datos),
     sesion: () => pedir<SesionCaja>('/caja/sesion').catch((e: unknown) => (e instanceof ApiError && e.status === 401 ? null : Promise.reject(e))),
     resumen: () => pedir<Resumen>('/caja/resumen'),
     ajustes: () => pedir<Ajustes>('/caja/ajustes'),

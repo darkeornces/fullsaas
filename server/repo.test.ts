@@ -4,7 +4,7 @@ import { MongoClient, type Db } from 'mongodb'
 import { createRepo, type Repo } from './repo.ts'
 
 const URL = process.env.TEST_MONGO_URL ?? 'mongodb://127.0.0.1:27017'
-const config = { sellosRequeridos: 3, nombre: 'Casa Lola', correo: null, enlaceVigenciaHoras: 48, enlaceEsperaMinutos: 60, zonaHoraria: 'Europe/Madrid' }
+const config = { sellosRequeridos: 3, nombre: 'Casa Lola', correo: null, pin: '4321', enlaceVigenciaHoras: 48, enlaceEsperaMinutos: 60, zonaHoraria: 'Europe/Madrid' }
 let client: MongoClient, db: Db, repo: Repo, ahora: Date
 
 before(async () => {
@@ -406,30 +406,57 @@ test('un correo inválido guardado en Mongo se ignora', async () => {
   assert.equal('correo' in (await repo.obtenerAjustes()), false)
 })
 
-// ---------- el primer ingreso registra el correo ----------
-test('vincularCorreoSiFalta registra el correo normalizado cuando no hay ninguno', async () => {
-  assert.equal(await repo.vincularCorreoSiFalta('  Dueno@Tienda.CL '), 'dueno@tienda.cl')
-  assert.equal((await repo.obtenerAjustes()).correo, 'dueno@tienda.cl')
+// ---------- correo y PIN guardados en la base ----------
+test('init guarda en la base el PIN (cifrado) y el correo de la configuración', async () => {
+  const doc = await ajustes().findOne({ _id: 'general' }) as { pinHash?: string } | null
+  assert.match(doc?.pinHash ?? '', /^scrypt:/)
+  assert.ok(!JSON.stringify(doc).includes('4321'))
+  const conCorreo = createRepo(db, { ...config, correo: 'Dueno@Tienda.CL' }, () => ahora)
+  await conCorreo.init()
+  assert.equal((await conCorreo.obtenerAjustes()).correo, 'dueno@tienda.cl')
 })
 
-test('vincularCorreoSiFalta no pisa un correo ya registrado y devuelve el existente', async () => {
-  await repo.vincularCorreoSiFalta('primero@tienda.cl')
-  assert.equal(await repo.vincularCorreoSiFalta('segundo@tienda.cl'), 'primero@tienda.cl')
-  assert.equal((await repo.obtenerAjustes()).correo, 'primero@tienda.cl')
+test('verificarCredenciales compara correo y PIN con lo guardado en la base', async () => {
+  const r = createRepo(db, { ...config, correo: 'dueno@tienda.cl' }, () => ahora)
+  await r.init()
+  assert.equal(await r.verificarCredenciales('dueno@tienda.cl', '4321'), true)
+  assert.equal(await r.verificarCredenciales('  DUENO@Tienda.CL ', '4321'), true)
+  assert.equal(await r.verificarCredenciales('dueno@tienda.cl', '4322'), false)
+  assert.equal(await r.verificarCredenciales('otro@tienda.cl', '4321'), false)
+  for (const malo of [undefined, null, '', 5, {}]) {
+    assert.equal(await r.verificarCredenciales(malo, '4321'), false)
+    assert.equal(await r.verificarCredenciales('dueno@tienda.cl', malo), false)
+  }
 })
 
-test('vincularCorreoSiFalta con varios correos a la vez deja uno solo (gana el primero)', async () => {
-  const r = await Promise.all(['a@t.cl', 'b@t.cl', 'c@t.cl', 'd@t.cl'].map((c) => repo.vincularCorreoSiFalta(c)))
-  assert.equal(new Set(r).size, 1)
-  assert.equal((await repo.obtenerAjustes()).correo, r[0])
+test('sin correo en la base nadie puede entrar (tieneCredenciales es false)', async () => {
+  assert.equal(await repo.tieneCredenciales(), false)
+  assert.equal(await repo.verificarCredenciales('cualquiera@tienda.cl', '4321'), false)
+  await repo.guardarAjustes({ correo: 'dueno@tienda.cl' })
+  assert.equal(await repo.tieneCredenciales(), true)
 })
 
-test('vincularCorreoSiFalta rechaza un correo inválido y no registra nada', async () => {
-  for (const malo of ['', 'abc', 'a@b', 5, null, undefined]) await falla(repo.vincularCorreoSiFalta(malo), 'DATOS_INVALIDOS')
-  assert.equal('correo' in (await repo.obtenerAjustes()), false)
+test('una vez guardados, la base manda: cambiar el PIN o el correo del entorno no los pisa', async () => {
+  await db.dropDatabase()
+  const r1 = createRepo(db, { ...config, correo: 'uno@tienda.cl', pin: '111111' }, () => ahora)
+  await r1.init()
+  const r2 = createRepo(db, { ...config, correo: 'dos@tienda.cl', pin: '222222' }, () => ahora)
+  await r2.init()
+  assert.equal(await r2.verificarCredenciales('uno@tienda.cl', '111111'), true)
+  assert.equal(await r2.verificarCredenciales('dos@tienda.cl', '222222'), false)
 })
 
-test('vincularCorreoSiFalta reemplaza un valor corrupto guardado en Mongo', async () => {
-  await ajustes().updateOne({ _id: 'general' }, { $set: { correo: 'basura' } })
-  assert.equal(await repo.vincularCorreoSiFalta('ok@tienda.cl'), 'ok@tienda.cl')
+test('cambiarPin exige el PIN actual, valida el nuevo y deja de valer el anterior', async () => {
+  await repo.guardarAjustes({ correo: 'dueno@tienda.cl' })
+  await falla(repo.cambiarPin('0000', '987654'), 'CREDENCIALES_INCORRECTAS')
+  for (const malo of ['12345', '', 'x'.repeat(65), 123456, null, undefined]) await falla(repo.cambiarPin('4321', malo), 'DATOS_INVALIDOS')
+  assert.equal(await repo.verificarCredenciales('dueno@tienda.cl', '4321'), true)
+  await repo.cambiarPin('4321', '987654')
+  assert.equal(await repo.verificarCredenciales('dueno@tienda.cl', '4321'), false)
+  assert.equal(await repo.verificarCredenciales('dueno@tienda.cl', '987654'), true)
+})
+
+test('los ajustes nunca exponen el hash del PIN', async () => {
+  const a = JSON.stringify(await repo.obtenerAjustes())
+  assert.ok(!a.includes('pinHash') && !a.includes('scrypt'))
 })

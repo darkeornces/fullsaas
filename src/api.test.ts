@@ -81,13 +81,20 @@ test('guardarAjustes puede enviar solo el nombre', async () => {
   assert.equal(r.nombre, 'Café Sol')
 })
 
-test('login envía correo y PIN, y acceso consulta si la tienda ya tiene correo', async () => {
-  const { api, llamadas } = falso(respuesta(200, { ok: true }), respuesta(200, { correoRegistrado: false }))
+test('login envía correo y PIN', async () => {
+  const { api, llamadas } = falso(respuesta(200, { ok: true }))
   await api.login('4321', 'a@b.co')
-  assert.deepEqual(await api.acceso(), { correoRegistrado: false })
   assert.equal(primera(llamadas).url, '/api/caja/login')
   assert.deepEqual(JSON.parse(primera(llamadas).body ?? ''), { pin: '4321', correo: 'a@b.co' })
-  assert.equal(llamadas[1]?.url, '/api/caja/acceso')
+  assert.equal('acceso' in api, false)
+})
+
+test('cambiarPin envía el PIN actual y el nuevo por PUT', async () => {
+  const { api, llamadas } = falso(respuesta(200, { ok: true }))
+  await api.cambiarPin({ pinActual: '4321', pinNuevo: '987654' })
+  assert.equal(primera(llamadas).url, '/api/caja/pin')
+  assert.equal(primera(llamadas).method, 'PUT')
+  assert.deepEqual(JSON.parse(primera(llamadas).body ?? ''), { pinActual: '4321', pinNuevo: '987654' })
 })
 
 test('guardarAjustes puede enviar solo el correo', async () => {

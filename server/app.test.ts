@@ -431,12 +431,6 @@ const levantar = async (conf: Config) => {
 }
 const sinCorreo: Config = { ...config, correo: null }
 
-test('acceso (público) dice si la tienda ya tiene correo registrado', async () => {
-  assert.deepEqual((await api('/api/caja/acceso')).json, { correoRegistrado: true })
-  await levantar(sinCorreo)
-  assert.deepEqual((await api('/api/caja/acceso')).json, { correoRegistrado: false })
-})
-
 test('el login siempre exige correo y PIN (el correo no distingue mayúsculas ni espacios)', async () => {
   assert.equal((await login(config.pin, null)).r.status, 401)
   assert.equal((await login(config.pin, '')).r.status, 401)
@@ -460,24 +454,6 @@ test('equivocarse de correo también cuenta para el bloqueo de 5 intentos', asyn
   assert.equal((await login(config.pin, 'tienda@test.cl')).r.status, 429)
 })
 
-test('sin correo registrado, el primer ingreso con PIN correcto lo registra', async () => {
-  await levantar(sinCorreo)
-  const primero = await login(config.pin, 'Nuevo@Tienda.cl')
-  assert.equal(primero.r.status, 200)
-  assert.deepEqual((await api('/api/caja/acceso')).json, { correoRegistrado: true })
-  assert.equal((await api('/api/caja/ajustes', { cookie: primero.cookie })).json.correo, 'nuevo@tienda.cl')
-  assert.equal((await login(config.pin, 'otro@tienda.cl')).r.status, 401)
-  assert.equal((await login(config.pin, 'nuevo@tienda.cl')).r.status, 200)
-})
-
-test('sin correo registrado, un PIN malo o un correo inválido NO registran nada', async () => {
-  await levantar(sinCorreo)
-  assert.equal((await login('0000', 'intruso@tienda.cl')).r.status, 401)
-  assert.equal((await login(config.pin, 'no-es-correo')).r.status, 401)
-  assert.equal((await login(config.pin, null)).r.status, 401)
-  assert.deepEqual((await api('/api/caja/acceso')).json, { correoRegistrado: false })
-})
-
 test('el correo solo se cambia con sesión de caja y debe ser válido; el login nuevo usa el nuevo', async () => {
   assert.equal((await api('/api/caja/ajustes', { metodo: 'PUT', cuerpo: { correo: 'a@b.cl' } })).status, 401)
   const cookie = await conSesion()
@@ -488,4 +464,43 @@ test('el correo solo se cambia con sesión de caja y debe ser válido; el login 
   assert.equal(ok.json.correo, 'dueno@tienda.cl')
   assert.equal((await login(config.pin, 'tienda@test.cl')).r.status, 401)
   assert.equal((await login(config.pin, 'dueno@tienda.cl')).r.status, 200)
+})
+
+test('con la base sin correo nadie puede entrar, ni con el PIN correcto', async () => {
+  await levantar(sinCorreo)
+  assert.equal((await login(config.pin, 'cualquiera@tienda.cl')).r.status, 401)
+  assert.equal((await login(config.pin, null)).r.status, 401)
+})
+
+test('el PIN y el correo se leen de la base: cambiarlos allí cambia el acceso', async () => {
+  const cookie = await conSesion()
+  const cambio = await api('/api/caja/pin', { metodo: 'PUT', cookie, cuerpo: { pinActual: config.pin, pinNuevo: '987654' } })
+  assert.equal(cambio.status, 200)
+  assert.equal((await login(config.pin)).r.status, 401)
+  assert.equal((await login('987654')).r.status, 200)
+})
+
+test('cambiar el PIN exige sesión, el PIN actual correcto y un PIN nuevo válido', async () => {
+  assert.equal((await api('/api/caja/pin', { metodo: 'PUT', cuerpo: { pinActual: config.pin, pinNuevo: '987654' } })).status, 401)
+  const cookie = await conSesion()
+  const mal = await api('/api/caja/pin', { metodo: 'PUT', cookie, cuerpo: { pinActual: '0000', pinNuevo: '987654' } })
+  assert.equal(mal.status, 401)
+  assert.equal(mal.json.error, 'CREDENCIALES_INCORRECTAS')
+  for (const malo of ['12345', '', 123456, null]) {
+    assert.equal((await api('/api/caja/pin', { metodo: 'PUT', cookie, cuerpo: { pinActual: config.pin, pinNuevo: malo } })).status, 400)
+  }
+  assert.equal((await login()).r.status, 200)
+})
+
+test('equivocarse de PIN actual al cambiarlo cuenta para el bloqueo (no sirve para adivinarlo)', async () => {
+  const cookie = await conSesion()
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await api('/api/caja/pin', { metodo: 'PUT', cookie, cuerpo: { pinActual: '0000', pinNuevo: '987654' } })).status, 401)
+  }
+  assert.equal((await api('/api/caja/pin', { metodo: 'PUT', cookie, cuerpo: { pinActual: config.pin, pinNuevo: '987654' } })).status, 429)
+})
+
+test('los ajustes de la caja no exponen el PIN ni su hash', async () => {
+  const r = await api('/api/caja/ajustes', { cookie: await conSesion() })
+  assert.ok(!r.texto.includes('scrypt') && !r.texto.includes('pinHash') && !r.texto.includes(config.pin))
 })
