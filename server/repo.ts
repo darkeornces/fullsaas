@@ -143,6 +143,19 @@ export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'correo' | 's
     return leerAjustes()
   }
 
+  async function vincularCorreoSiFalta(entrada: unknown): Promise<string> {
+    const nuevo = correoValido(entrada)
+    if (nuevo === null) throw new AppError('DATOS_INVALIDOS')
+    await ajustes.updateOne(
+      { _id: 'general', correo: { $not: /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/ } },
+      { $set: { correo: nuevo } },
+      { upsert: false },
+    )
+    const registrado = (await leerAjustes()).correo
+    if (!registrado) throw new AppError('DATOS_INVALIDOS')
+    return registrado
+  }
+
   const vigencia = (desde: Date) => new Date(desde.getTime() + config.enlaceVigenciaHoras * 3_600_000)
 
   async function crearEnlace(whatsapp: unknown): Promise<{ enlace: Enlace; cliente: Cliente; reutilizado: boolean }> {
@@ -219,6 +232,6 @@ export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'correo' | 's
 
   return {
     init, entrar, buscar, obtenerPorCodigo,
-    sumarSello, canjear, crearEnlace, usarEnlace, movimientos: listarMovimientos, resumen, obtenerAjustes, guardarAjustes,
+    sumarSello, canjear, crearEnlace, usarEnlace, movimientos: listarMovimientos, resumen, obtenerAjustes, guardarAjustes, vincularCorreoSiFalta,
   }
 }

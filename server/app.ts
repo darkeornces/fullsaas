@@ -1,6 +1,7 @@
 import express, { type Request } from 'express'
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { AppError } from './errors.ts'
+import { correoValido } from './correo.ts'
 import type { Repo } from './repo.ts'
 import type { Cliente, Config } from './tipos.ts'
 
@@ -72,17 +73,18 @@ export function createApp({ repo, config, now = () => new Date() }: Deps) {
 
   // ---------- caja: sesión ----------
   app.get('/api/caja/acceso', async (req, res) => {
-    res.json({ pideCorreo: Boolean((await repo.obtenerAjustes()).correo) })
+    res.json({ correoRegistrado: Boolean((await repo.obtenerAjustes()).correo) })
   })
 
   app.post('/api/caja/login', async (req, res) => {
     const ip = ipDe(req)
     if (limitePin.bloqueado(ip)) throw new AppError('DEMASIADOS_INTENTOS')
     const pin: unknown = req.body?.pin
-    const correoEsperado = (await repo.obtenerAjustes()).correo
-    const correoRecibido: unknown = req.body?.correo
     const pinOk = typeof pin === 'string' && iguales(pin, config.pin)
-    const correoOk = !correoEsperado || (typeof correoRecibido === 'string' && iguales(correoRecibido.trim().toLowerCase(), correoEsperado))
+    const recibido = correoValido(req.body?.correo)
+    let esperado = (await repo.obtenerAjustes()).correo
+    if (pinOk && recibido && !esperado) esperado = await repo.vincularCorreoSiFalta(recibido)
+    const correoOk = recibido !== null && esperado !== undefined && iguales(recibido, esperado)
     if (!pinOk || !correoOk) {
       limitePin.registrar(ip)
       res.status(401).json({ error: 'CREDENCIALES_INCORRECTAS' })

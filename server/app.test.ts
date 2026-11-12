@@ -11,7 +11,7 @@ const URL = process.env.TEST_MONGO_URL ?? 'mongodb://127.0.0.1:27017'
 const config: Config = {
   nombre: 'Casa Lola', premio: 'almuerzo gratis', sellosRequeridos: 3, enlaceVigenciaHoras: 48, enlaceEsperaMinutos: 60,
   pin: '4321', sessionSecret: 'secreto-de-prueba', sesionHoras: 12, clienteSesionDias: 180, cookieSecure: false,
-  baseUrl: 'https://fidelhop.test', trustProxy: false, zonaHoraria: 'Europe/Madrid', correo: null,
+  baseUrl: 'https://fidelhop.test', trustProxy: false, zonaHoraria: 'Europe/Madrid', correo: 'tienda@test.cl',
   mongoUrl: '', dbName: '', port: 0,
 }
 let client: MongoClient, db: Db, server: Server | undefined, base: string, ahora: Date
@@ -51,8 +51,8 @@ const api = async (ruta: string, { metodo = 'GET', cuerpo, cookie, crudo }: Opci
   return { status: res.status, headers: res.headers, json: texto ? JSON.parse(texto) : null, texto }
 }
 const cookieDe = (r: Resp) => r.headers.get('set-cookie')?.split(';')[0] ?? ''
-const login = async (pin = config.pin, correo?: string) => {
-  const r = await api('/api/caja/login', { metodo: 'POST', cuerpo: correo === undefined ? { pin } : { pin, correo } })
+const login = async (pin = config.pin, correo: string | null = 'tienda@test.cl') => {
+  const r = await api('/api/caja/login', { metodo: 'POST', cuerpo: correo === null ? { pin } : { pin, correo } })
   return { r, cookie: cookieDe(r) }
 }
 const conSesion = async () => (await login()).cookie
@@ -369,12 +369,12 @@ test('ajustes: solo la caja los ve y los cambia; los valores inválidos dan 400'
   assert.equal((await api('/api/caja/ajustes')).status, 401)
   assert.equal((await api('/api/caja/ajustes', { metodo: 'PUT', cuerpo: { enlaceEsperaMinutos: 0 } })).status, 401)
   const cookie = await conSesion()
-  assert.deepEqual((await api('/api/caja/ajustes', { cookie })).json, { enlaceEsperaMinutos: 60, nombre: 'Casa Lola' })
+  assert.deepEqual((await api('/api/caja/ajustes', { cookie })).json, { enlaceEsperaMinutos: 60, nombre: 'Casa Lola', correo: 'tienda@test.cl' })
   const mal = await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { enlaceEsperaMinutos: -5 } })
   assert.equal(mal.status, 400)
   assert.equal(mal.json.error, 'DATOS_INVALIDOS')
   assert.equal((await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: {} })).status, 400)
-  assert.deepEqual((await api('/api/caja/ajustes', { cookie })).json, { enlaceEsperaMinutos: 60, nombre: 'Casa Lola' })
+  assert.deepEqual((await api('/api/caja/ajustes', { cookie })).json, { enlaceEsperaMinutos: 60, nombre: 'Casa Lola', correo: 'tienda@test.cl' })
 })
 
 test('quitar la espera desde ajustes permite generar un código nuevo al momento', async () => {
@@ -385,7 +385,7 @@ test('quitar la espera desde ajustes permite generar un código nuevo al momento
   assert.equal((await pedir()).status, 429)
   const guardado = await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { enlaceEsperaMinutos: 0 } })
   assert.equal(guardado.status, 200)
-  assert.deepEqual(guardado.json, { enlaceEsperaMinutos: 0, nombre: 'Casa Lola' })
+  assert.deepEqual(guardado.json, { enlaceEsperaMinutos: 0, nombre: 'Casa Lola', correo: 'tienda@test.cl' })
   const b = await pedir()
   assert.equal(b.status, 201)
   assert.notEqual(b.json.enlace.codigo, a.json.enlace.codigo)
@@ -419,44 +419,66 @@ test('nombre inválido en ajustes da 400 y no cambia nada', async () => {
   assert.equal((await api('/api/caja/sesion', { cookie })).json.comercio, 'Casa Lola')
 })
 
-// ---------- correo de acceso ----------
-const ponerCorreo = async (correo: string) => {
-  const cookie = await conSesion()
-  const r = await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { correo } })
-  assert.equal(r.status, 200)
+// ---------- correo + PIN para entrar a la tienda ----------
+const levantar = async (conf: Config) => {
+  server?.closeAllConnections()
+  server?.close()
+  await db.dropDatabase()
+  const repo = createRepo(db, conf, () => ahora)
+  await repo.init()
+  server = createApp({ repo, config: conf, now: () => ahora }).listen(0)
+  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 }
+const sinCorreo: Config = { ...config, correo: null }
 
-test('acceso (público) indica si hay que escribir el correo; sin correo, el PIN basta', async () => {
-  assert.deepEqual((await api('/api/caja/acceso')).json, { pideCorreo: false })
-  assert.equal((await login()).r.status, 200)
-  assert.equal((await login(config.pin, 'cualquiera@x.cl')).r.status, 200)
+test('acceso (público) dice si la tienda ya tiene correo registrado', async () => {
+  assert.deepEqual((await api('/api/caja/acceso')).json, { correoRegistrado: true })
+  await levantar(sinCorreo)
+  assert.deepEqual((await api('/api/caja/acceso')).json, { correoRegistrado: false })
 })
 
-test('con correo configurado el login exige correo y PIN (el correo no distingue mayúsculas)', async () => {
-  await ponerCorreo('Dueno@Tienda.cl')
-  assert.deepEqual((await api('/api/caja/acceso')).json, { pideCorreo: true })
-  assert.equal((await login()).r.status, 401)
+test('el login siempre exige correo y PIN (el correo no distingue mayúsculas ni espacios)', async () => {
+  assert.equal((await login(config.pin, null)).r.status, 401)
+  assert.equal((await login(config.pin, '')).r.status, 401)
   assert.equal((await login(config.pin, 'otro@tienda.cl')).r.status, 401)
-  assert.equal((await login('0000', 'dueno@tienda.cl')).r.status, 401)
-  assert.equal((await login(config.pin, '  DUENO@tienda.CL ')).r.status, 200)
+  assert.equal((await login('0000', 'tienda@test.cl')).r.status, 401)
+  assert.equal((await login(config.pin, '  TIENDA@Test.CL ')).r.status, 200)
 })
 
 test('el error no revela si falló el correo o el PIN, ni deja cookie', async () => {
-  await ponerCorreo('dueno@tienda.cl')
   const mal1 = (await login(config.pin, 'otro@tienda.cl')).r
-  const mal2 = (await login('0000', 'dueno@tienda.cl')).r
+  const mal2 = (await login('0000', 'tienda@test.cl')).r
+  const mal3 = (await login(config.pin, null)).r
   assert.equal(mal1.json.error, 'CREDENCIALES_INCORRECTAS')
   assert.deepEqual(mal1.json, mal2.json)
+  assert.deepEqual(mal1.json, mal3.json)
   assert.equal(mal1.headers.get('set-cookie'), null)
 })
 
 test('equivocarse de correo también cuenta para el bloqueo de 5 intentos', async () => {
-  await ponerCorreo('dueno@tienda.cl')
   for (let i = 0; i < 5; i++) assert.equal((await login(config.pin, 'x@tienda.cl')).r.status, 401)
-  assert.equal((await login(config.pin, 'dueno@tienda.cl')).r.status, 429)
+  assert.equal((await login(config.pin, 'tienda@test.cl')).r.status, 429)
 })
 
-test('el correo solo se cambia con sesión de caja y debe ser válido', async () => {
+test('sin correo registrado, el primer ingreso con PIN correcto lo registra', async () => {
+  await levantar(sinCorreo)
+  const primero = await login(config.pin, 'Nuevo@Tienda.cl')
+  assert.equal(primero.r.status, 200)
+  assert.deepEqual((await api('/api/caja/acceso')).json, { correoRegistrado: true })
+  assert.equal((await api('/api/caja/ajustes', { cookie: primero.cookie })).json.correo, 'nuevo@tienda.cl')
+  assert.equal((await login(config.pin, 'otro@tienda.cl')).r.status, 401)
+  assert.equal((await login(config.pin, 'nuevo@tienda.cl')).r.status, 200)
+})
+
+test('sin correo registrado, un PIN malo o un correo inválido NO registran nada', async () => {
+  await levantar(sinCorreo)
+  assert.equal((await login('0000', 'intruso@tienda.cl')).r.status, 401)
+  assert.equal((await login(config.pin, 'no-es-correo')).r.status, 401)
+  assert.equal((await login(config.pin, null)).r.status, 401)
+  assert.deepEqual((await api('/api/caja/acceso')).json, { correoRegistrado: false })
+})
+
+test('el correo solo se cambia con sesión de caja y debe ser válido; el login nuevo usa el nuevo', async () => {
   assert.equal((await api('/api/caja/ajustes', { metodo: 'PUT', cuerpo: { correo: 'a@b.cl' } })).status, 401)
   const cookie = await conSesion()
   for (const malo of ['', 'abc', 'a@b', 5, null]) {
@@ -464,5 +486,6 @@ test('el correo solo se cambia con sesión de caja y debe ser válido', async ()
   }
   const ok = await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { correo: 'Dueno@Tienda.cl' } })
   assert.equal(ok.json.correo, 'dueno@tienda.cl')
-  assert.equal((await api('/api/caja/ajustes', { cookie })).json.correo, 'dueno@tienda.cl')
+  assert.equal((await login(config.pin, 'tienda@test.cl')).r.status, 401)
+  assert.equal((await login(config.pin, 'dueno@tienda.cl')).r.status, 200)
 })

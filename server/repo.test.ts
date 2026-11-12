@@ -405,3 +405,31 @@ test('un correo inválido guardado en Mongo se ignora', async () => {
   await ajustes().updateOne({ _id: 'general' }, { $set: { correo: 'basura' } })
   assert.equal('correo' in (await repo.obtenerAjustes()), false)
 })
+
+// ---------- el primer ingreso registra el correo ----------
+test('vincularCorreoSiFalta registra el correo normalizado cuando no hay ninguno', async () => {
+  assert.equal(await repo.vincularCorreoSiFalta('  Dueno@Tienda.CL '), 'dueno@tienda.cl')
+  assert.equal((await repo.obtenerAjustes()).correo, 'dueno@tienda.cl')
+})
+
+test('vincularCorreoSiFalta no pisa un correo ya registrado y devuelve el existente', async () => {
+  await repo.vincularCorreoSiFalta('primero@tienda.cl')
+  assert.equal(await repo.vincularCorreoSiFalta('segundo@tienda.cl'), 'primero@tienda.cl')
+  assert.equal((await repo.obtenerAjustes()).correo, 'primero@tienda.cl')
+})
+
+test('vincularCorreoSiFalta con varios correos a la vez deja uno solo (gana el primero)', async () => {
+  const r = await Promise.all(['a@t.cl', 'b@t.cl', 'c@t.cl', 'd@t.cl'].map((c) => repo.vincularCorreoSiFalta(c)))
+  assert.equal(new Set(r).size, 1)
+  assert.equal((await repo.obtenerAjustes()).correo, r[0])
+})
+
+test('vincularCorreoSiFalta rechaza un correo inválido y no registra nada', async () => {
+  for (const malo of ['', 'abc', 'a@b', 5, null, undefined]) await falla(repo.vincularCorreoSiFalta(malo), 'DATOS_INVALIDOS')
+  assert.equal('correo' in (await repo.obtenerAjustes()), false)
+})
+
+test('vincularCorreoSiFalta reemplaza un valor corrupto guardado en Mongo', async () => {
+  await ajustes().updateOne({ _id: 'general' }, { $set: { correo: 'basura' } })
+  assert.equal(await repo.vincularCorreoSiFalta('ok@tienda.cl'), 'ok@tienda.cl')
+})

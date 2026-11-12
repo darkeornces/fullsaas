@@ -81,14 +81,13 @@ test('guardarAjustes puede enviar solo el nombre', async () => {
   assert.equal(r.nombre, 'Café Sol')
 })
 
-test('login envía el correo solo cuando se indica, y acceso consulta si hace falta', async () => {
-  const { api, llamadas } = falso(respuesta(200, { ok: true }), respuesta(200, { ok: true }), respuesta(200, { pideCorreo: true }))
-  await api.login('4321')
+test('login envía correo y PIN, y acceso consulta si la tienda ya tiene correo', async () => {
+  const { api, llamadas } = falso(respuesta(200, { ok: true }), respuesta(200, { correoRegistrado: false }))
   await api.login('4321', 'a@b.co')
-  assert.deepEqual(await api.acceso(), { pideCorreo: true })
-  assert.deepEqual(JSON.parse(primera(llamadas).body ?? ''), { pin: '4321' })
-  assert.deepEqual(JSON.parse(llamadas[1]?.body ?? ''), { pin: '4321', correo: 'a@b.co' })
-  assert.equal(llamadas[2]?.url, '/api/caja/acceso')
+  assert.deepEqual(await api.acceso(), { correoRegistrado: false })
+  assert.equal(primera(llamadas).url, '/api/caja/login')
+  assert.deepEqual(JSON.parse(primera(llamadas).body ?? ''), { pin: '4321', correo: 'a@b.co' })
+  assert.equal(llamadas[1]?.url, '/api/caja/acceso')
 })
 
 test('guardarAjustes puede enviar solo el correo', async () => {
@@ -99,12 +98,6 @@ test('guardarAjustes puede enviar solo el correo', async () => {
 
 test('el mensaje de credenciales incorrectas menciona correo y PIN', () => {
   assert.match(mensajeError('CREDENCIALES_INCORRECTAS'), /correo.*PIN|PIN.*correo/i)
-})
-
-test('login envía el PIN', async () => {
-  const { api, llamadas } = falso(respuesta(200, { ok: true }))
-  await api.login('4321')
-  assert.deepEqual(JSON.parse(primera(llamadas).body ?? ''), { pin: '4321' })
 })
 
 test('codigoDeEnlace acepta el código suelto o la URL completa', () => {
