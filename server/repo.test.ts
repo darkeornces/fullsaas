@@ -4,7 +4,7 @@ import { MongoClient, type Db } from 'mongodb'
 import { createRepo, type Repo } from './repo.ts'
 
 const URL = process.env.TEST_MONGO_URL ?? 'mongodb://127.0.0.1:27017'
-const config = { sellosRequeridos: 3, enlaceVigenciaHoras: 48, enlaceEsperaMinutos: 60, zonaHoraria: 'Europe/Madrid' }
+const config = { sellosRequeridos: 3, nombre: 'Casa Lola', enlaceVigenciaHoras: 48, enlaceEsperaMinutos: 60, zonaHoraria: 'Europe/Madrid' }
 let client: MongoClient, db: Db, repo: Repo, ahora: Date
 
 before(async () => {
@@ -258,7 +258,7 @@ test('el cliente que devuelve el repositorio no expone datos internos del enlace
 })
 
 // ---------- parámetro de espera guardado en Mongo ----------
-const ajustes = () => db.collection<{ _id: string; enlaceEsperaMinutos?: unknown }>('ajustes')
+const ajustes = () => db.collection<{ _id: string; enlaceEsperaMinutos?: unknown; nombre?: unknown }>('ajustes')
 const fijarEspera = (valor: unknown) => ajustes().updateOne({ _id: 'general' }, { $set: { enlaceEsperaMinutos: valor } }, { upsert: true })
 
 test('init crea el parámetro de espera con el valor por defecto de la configuración', async () => {
@@ -308,27 +308,69 @@ test('un valor inválido en Mongo (texto, negativo, nulo) usa el de la configura
 
 // ---------- ajustes editables desde la caja ----------
 test('obtenerAjustes devuelve la espera actual (por defecto la de la configuración)', async () => {
-  assert.deepEqual(await repo.obtenerAjustes(), { enlaceEsperaMinutos: 60 })
+  assert.deepEqual(await repo.obtenerAjustes(), { enlaceEsperaMinutos: 60, nombre: 'Casa Lola' })
   await fijarEspera(15)
-  assert.deepEqual(await repo.obtenerAjustes(), { enlaceEsperaMinutos: 15 })
+  assert.deepEqual(await repo.obtenerAjustes(), { enlaceEsperaMinutos: 15, nombre: 'Casa Lola' })
   await fijarEspera('basura')
-  assert.deepEqual(await repo.obtenerAjustes(), { enlaceEsperaMinutos: 60 })
+  assert.deepEqual(await repo.obtenerAjustes(), { enlaceEsperaMinutos: 60, nombre: 'Casa Lola' })
 })
 
 test('guardarAjustes persiste la espera y se aplica de inmediato', async () => {
   const { enlace } = await repo.crearEnlace('+34612345187')
   await repo.usarEnlace(enlace.codigo)
   await assert.rejects(repo.crearEnlace('+34612345187'), (e: { code?: string }) => e.code === 'ESPERA_REQUERIDA')
-  assert.deepEqual(await repo.guardarAjustes({ enlaceEsperaMinutos: 0 }), { enlaceEsperaMinutos: 0 })
+  assert.deepEqual(await repo.guardarAjustes({ enlaceEsperaMinutos: 0 }), { enlaceEsperaMinutos: 0, nombre: 'Casa Lola' })
   assert.equal((await ajustes().findOne({ _id: 'general' }))?.enlaceEsperaMinutos, 0)
   assert.notEqual((await repo.crearEnlace('+34612345187')).enlace.codigo, enlace.codigo)
 })
 
 test('guardarAjustes acepta enteros de 0 a 1440 minutos y rechaza el resto', async () => {
-  for (const ok of [0, 1, 30, 1440]) assert.deepEqual(await repo.guardarAjustes({ enlaceEsperaMinutos: ok }), { enlaceEsperaMinutos: ok })
+  for (const ok of [0, 1, 30, 1440]) assert.deepEqual(await repo.guardarAjustes({ enlaceEsperaMinutos: ok }), { enlaceEsperaMinutos: ok, nombre: 'Casa Lola' })
   for (const malo of [-1, 1.5, 1441, NaN, Infinity, '30', null, undefined]) {
     await falla(repo.guardarAjustes({ enlaceEsperaMinutos: malo }), 'DATOS_INVALIDOS')
   }
   await falla(repo.guardarAjustes(undefined), 'DATOS_INVALIDOS')
   assert.equal((await repo.obtenerAjustes()).enlaceEsperaMinutos, 1440)
+})
+
+// ---------- nombre de la tienda ----------
+const fijarNombre = (valor: unknown) => ajustes().updateOne({ _id: 'general' }, { $set: { nombre: valor } }, { upsert: true })
+
+test('init guarda el nombre por defecto de la configuración sin pisar uno ya cambiado', async () => {
+  assert.equal((await ajustes().findOne({ _id: 'general' }))?.nombre, 'Casa Lola')
+  await fijarNombre('Café Sol')
+  await repo.init()
+  assert.equal((await ajustes().findOne({ _id: 'general' }))?.nombre, 'Café Sol')
+})
+
+test('init añade el nombre a un documento de ajustes antiguo que no lo tenía', async () => {
+  await ajustes().replaceOne({ _id: 'general' }, { enlaceEsperaMinutos: 15 })
+  await repo.init()
+  assert.deepEqual(await repo.obtenerAjustes(), { enlaceEsperaMinutos: 15, nombre: 'Casa Lola' })
+})
+
+test('guardarAjustes cambia el nombre (recortado y sin espacios dobles) sin tocar la espera', async () => {
+  await fijarEspera(15)
+  const r = await repo.guardarAjustes({ nombre: '   Café   Sol  ' })
+  assert.deepEqual(r, { enlaceEsperaMinutos: 15, nombre: 'Café Sol' })
+  assert.deepEqual(await repo.obtenerAjustes(), { enlaceEsperaMinutos: 15, nombre: 'Café Sol' })
+})
+
+test('guardarAjustes puede cambiar nombre y espera a la vez', async () => {
+  assert.deepEqual(await repo.guardarAjustes({ nombre: 'Panadería Ñuñoa', enlaceEsperaMinutos: 0 }), { enlaceEsperaMinutos: 0, nombre: 'Panadería Ñuñoa' })
+})
+
+test('guardarAjustes rechaza nombres vacíos, solo espacios, demasiado largos o que no son texto', async () => {
+  for (const malo of ['', '    ', 'x'.repeat(41), 123, null, {}, ['a'], 'con\nsalto', 'tab\taqui']) {
+    await falla(repo.guardarAjustes({ nombre: malo }), 'DATOS_INVALIDOS')
+  }
+  assert.equal((await repo.obtenerAjustes()).nombre, 'Casa Lola')
+  assert.equal((await repo.guardarAjustes({ nombre: 'x'.repeat(40) })).nombre, 'x'.repeat(40))
+})
+
+test('un nombre inválido en Mongo usa el de la configuración', async () => {
+  for (const malo of ['', '   ', 5, null]) {
+    await fijarNombre(malo)
+    assert.equal((await repo.obtenerAjustes()).nombre, 'Casa Lola')
+  }
 })

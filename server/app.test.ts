@@ -369,12 +369,12 @@ test('ajustes: solo la caja los ve y los cambia; los valores inválidos dan 400'
   assert.equal((await api('/api/caja/ajustes')).status, 401)
   assert.equal((await api('/api/caja/ajustes', { metodo: 'PUT', cuerpo: { enlaceEsperaMinutos: 0 } })).status, 401)
   const cookie = await conSesion()
-  assert.deepEqual((await api('/api/caja/ajustes', { cookie })).json, { enlaceEsperaMinutos: 60 })
+  assert.deepEqual((await api('/api/caja/ajustes', { cookie })).json, { enlaceEsperaMinutos: 60, nombre: 'Casa Lola' })
   const mal = await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { enlaceEsperaMinutos: -5 } })
   assert.equal(mal.status, 400)
   assert.equal(mal.json.error, 'DATOS_INVALIDOS')
   assert.equal((await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: {} })).status, 400)
-  assert.deepEqual((await api('/api/caja/ajustes', { cookie })).json, { enlaceEsperaMinutos: 60 })
+  assert.deepEqual((await api('/api/caja/ajustes', { cookie })).json, { enlaceEsperaMinutos: 60, nombre: 'Casa Lola' })
 })
 
 test('quitar la espera desde ajustes permite generar un código nuevo al momento', async () => {
@@ -385,11 +385,36 @@ test('quitar la espera desde ajustes permite generar un código nuevo al momento
   assert.equal((await pedir()).status, 429)
   const guardado = await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { enlaceEsperaMinutos: 0 } })
   assert.equal(guardado.status, 200)
-  assert.deepEqual(guardado.json, { enlaceEsperaMinutos: 0 })
+  assert.deepEqual(guardado.json, { enlaceEsperaMinutos: 0, nombre: 'Casa Lola' })
   const b = await pedir()
   assert.equal(b.status, 201)
   assert.notEqual(b.json.enlace.codigo, a.json.enlace.codigo)
   await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { enlaceEsperaMinutos: 60 } })
   await api(`/api/enlaces/${b.json.enlace.codigo}/usar`, { metodo: 'POST' })
   assert.equal((await pedir()).status, 429)
+})
+
+test('cambiar el nombre desde ajustes se refleja en la sesión de caja, la tarjeta del cliente y el mensaje de WhatsApp', async () => {
+  const cookie = await conSesion()
+  const cambio = await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { nombre: '  Café   Sol ' } })
+  assert.equal(cambio.status, 200)
+  assert.equal(cambio.json.nombre, 'Café Sol')
+  assert.equal(cambio.json.enlaceEsperaMinutos, 60)
+  assert.equal((await api('/api/caja/sesion', { cookie })).json.comercio, 'Café Sol')
+  const f = (await api('/api/caja/fidelizar', { metodo: 'POST', cookie, cuerpo: { whatsapp: '+34612345187' } })).json
+  assert.ok(decodeURIComponent(f.waLink).includes('Café Sol'))
+  assert.ok(!decodeURIComponent(f.waLink).includes('Casa Lola'))
+  const cli = await api(`/api/enlaces/${f.enlace.codigo}/usar`, { metodo: 'POST' })
+  assert.equal(cli.json.comercio, 'Café Sol')
+  assert.equal((await api('/api/tarjeta', { cookie: cookieDe(cli) })).json.comercio, 'Café Sol')
+})
+
+test('nombre inválido en ajustes da 400 y no cambia nada', async () => {
+  const cookie = await conSesion()
+  for (const malo of ['', '   ', 'x'.repeat(41), 7, null]) {
+    const r = await api('/api/caja/ajustes', { metodo: 'PUT', cookie, cuerpo: { nombre: malo } })
+    assert.equal(r.status, 400)
+    assert.equal(r.json.error, 'DATOS_INVALIDOS')
+  }
+  assert.equal((await api('/api/caja/sesion', { cookie })).json.comercio, 'Casa Lola')
 })

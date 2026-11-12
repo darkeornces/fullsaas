@@ -35,4 +35,4 @@ export interface Fidelizacion {
 
 export interface SesionCaja { ok: true; comercio: string; premio: string; total: number }
 
-export interface Ajustes { enlaceEsperaMinutos: number }
+export interface Ajustes { enlaceEsperaMinutos: number; nombre: string }

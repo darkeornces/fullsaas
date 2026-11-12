@@ -98,14 +98,16 @@ export function createApp({ repo, config, now = () => new Date() }: Deps) {
   })
   app.use('/api/caja', caja)
 
+  const nombreTienda = async () => (await repo.obtenerAjustes()).nombre
+
   const urlEnlace = (codigo: string) => `${config.baseUrl}/f/${codigo}`
-  const waLink = (whatsapp: string, url: string) => {
-    const texto = `Hola, gracias por tu compra en ${config.nombre}. Abre este enlace para sumar tu sello (vale una sola vez): ${url}`
+  const waLink = (whatsapp: string, url: string, nombre: string) => {
+    const texto = `Hola, gracias por tu compra en ${nombre}. Abre este enlace para sumar tu sello (vale una sola vez): ${url}`
     return `https://wa.me/${whatsapp.slice(1)}?text=${encodeURIComponent(texto)}`
   }
 
-  caja.get('/sesion', (req, res) => {
-    res.json({ ok: true, comercio: config.nombre, premio: config.premio, total: config.sellosRequeridos })
+  caja.get('/sesion', async (req, res) => {
+    res.json({ ok: true, comercio: await nombreTienda(), premio: config.premio, total: config.sellosRequeridos })
   })
 
   caja.post('/fidelizar', async (req, res) => {
@@ -114,7 +116,7 @@ export function createApp({ repo, config, now = () => new Date() }: Deps) {
     res.status(reutilizado ? 200 : 201).json({
       cliente,
       enlace: { codigo: enlace.codigo, url, expiraEn: enlace.expiraEn },
-      waLink: waLink(cliente.whatsapp, url),
+      waLink: waLink(cliente.whatsapp, url, await nombreTienda()),
       reutilizado,
     })
   })
@@ -146,8 +148,8 @@ export function createApp({ repo, config, now = () => new Date() }: Deps) {
   })
 
   // ---------- cliente: entra con su número ----------
-  const vistaTarjeta = (c: Cliente) => ({
-    codigo: c.codigo, comercio: config.nombre, premio: config.premio,
+  const vistaTarjeta = (c: Cliente, nombre: string) => ({
+    codigo: c.codigo, comercio: nombre, premio: config.premio,
     sellos: c.sellos, total: config.sellosRequeridos, whatsapp: enmascarar(c.whatsapp),
   })
 
@@ -158,7 +160,7 @@ export function createApp({ repo, config, now = () => new Date() }: Deps) {
     const c = await repo.entrar(req.body?.whatsapp)
     const segundos = config.clienteSesionDias * 86400
     res.set('Set-Cookie', `${COOKIE_CLIENTE}=${emitir(`c:${c.codigo}`, segundos)}; Max-Age=${segundos}; ${atributos()}`)
-    res.json(vistaTarjeta(c))
+    res.json(vistaTarjeta(c, await nombreTienda()))
   })
 
   app.post('/api/salir', (req, res) => {
@@ -175,14 +177,14 @@ export function createApp({ repo, config, now = () => new Date() }: Deps) {
   }
 
   app.get('/api/tarjeta', async (req, res) => {
-    res.json(vistaTarjeta(await clienteActual(req)))
+    res.json(vistaTarjeta(await clienteActual(req), await nombreTienda()))
   })
 
   app.post('/api/enlaces/:codigo/usar', async (req, res) => {
     const c = await repo.usarEnlace(String(req.params.codigo))
     const segundos = config.clienteSesionDias * 86400
     res.set('Set-Cookie', `${COOKIE_CLIENTE}=${emitir(`c:${c.codigo}`, segundos)}; Max-Age=${segundos}; ${atributos()}`)
-    res.json(vistaTarjeta(c))
+    res.json(vistaTarjeta(c, await nombreTienda()))
   })
 
   app.use('/api', (req, res) => { res.status(404).json({ error: 'NO_ENCONTRADO' }) })

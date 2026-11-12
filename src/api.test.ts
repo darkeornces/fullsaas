@@ -74,6 +74,13 @@ test('ajustes se lee con GET y guardarAjustes envía la espera por PUT', async (
   assert.deepEqual(JSON.parse(llamadas[1]?.body ?? ''), { enlaceEsperaMinutos: 0 })
 })
 
+test('guardarAjustes puede enviar solo el nombre', async () => {
+  const { api, llamadas } = falso(respuesta(200, { enlaceEsperaMinutos: 60, nombre: 'Café Sol' }))
+  const r = await api.guardarAjustes({ nombre: 'Café Sol' })
+  assert.deepEqual(JSON.parse(primera(llamadas).body ?? ''), { nombre: 'Café Sol' })
+  assert.equal(r.nombre, 'Café Sol')
+})
+
 test('login envía el PIN', async () => {
   const { api, llamadas } = falso(respuesta(200, { ok: true }))
   await api.login('4321')

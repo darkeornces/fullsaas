@@ -22,11 +22,11 @@ export function normalizarWhatsapp(entrada: unknown): string {
 
 export type Repo = ReturnType<typeof createRepo>
 
-export function createRepo(db: Db, config: Pick<Config, 'sellosRequeridos' | 'enlaceVigenciaHoras' | 'enlaceEsperaMinutos' | 'zonaHoraria'>, now: () => Date = () => new Date()) {
+export function createRepo(db: Db, config: Pick<Config, 'nombre' | 'sellosRequeridos' | 'enlaceVigenciaHoras' | 'enlaceEsperaMinutos' | 'zonaHoraria'>, now: () => Date = () => new Date()) {
   const clientes = db.collection<Cliente & { ultimoEnlace?: { codigo: string; creadoEn: Date } }>('clientes')
   const enlaces = db.collection<Enlace>('enlaces')
   const movimientos = db.collection('movimientos')
-  const ajustes = db.collection<{ _id: string; enlaceEsperaMinutos?: unknown }>('ajustes')
+  const ajustes = db.collection<{ _id: string; enlaceEsperaMinutos?: unknown; nombre?: unknown }>('ajustes')
 
   const registrar = (tipo: Movimiento['tipo'], datos: Record<string, unknown>) => movimientos.insertOne({ tipo, fecha: now(), ...datos })
 
@@ -39,6 +39,7 @@ export function createRepo(db: Db, config: Pick<Config, 'sellosRequeridos' | 'en
     await enlaces.createIndex({ codigo: 1 }, { unique: true })
     await movimientos.createIndex({ fecha: -1 })
     await ajustes.updateOne({ _id: 'general' }, { $setOnInsert: { enlaceEsperaMinutos: config.enlaceEsperaMinutos } }, { upsert: true })
+    await ajustes.updateOne({ _id: 'general', nombre: { $exists: false } }, { $set: { nombre: config.nombre } })
   }
 
   const obtenerPorCodigo = (codigo: string) => clientes.findOne({ codigo }, SIN_INTERNOS)
@@ -95,20 +96,40 @@ export function createRepo(db: Db, config: Pick<Config, 'sellosRequeridos' | 'en
     return c
   }
 
-  async function esperaMinutos(): Promise<number> {
-    const valor = (await ajustes.findOne({ _id: 'general' }))?.enlaceEsperaMinutos
-    return typeof valor === 'number' && Number.isFinite(valor) && valor >= 0 ? valor : config.enlaceEsperaMinutos
+  const nombreValido = (valor: unknown): string | null => {
+    if (typeof valor !== 'string' || /[\u0000-\u001f\u007f]/.test(valor)) return null
+    const limpio = valor.trim().replace(/\s+/g, ' ')
+    return limpio.length >= 1 && limpio.length <= 40 ? limpio : null
   }
 
-  async function obtenerAjustes(): Promise<{ enlaceEsperaMinutos: number }> {
-    return { enlaceEsperaMinutos: await esperaMinutos() }
+  async function leerAjustes(): Promise<{ enlaceEsperaMinutos: number; nombre: string }> {
+    const doc = await ajustes.findOne({ _id: 'general' })
+    const espera = doc?.enlaceEsperaMinutos
+    return {
+      enlaceEsperaMinutos: typeof espera === 'number' && Number.isFinite(espera) && espera >= 0 ? espera : config.enlaceEsperaMinutos,
+      nombre: nombreValido(doc?.nombre) ?? config.nombre,
+    }
   }
 
-  async function guardarAjustes(entrada: unknown): Promise<{ enlaceEsperaMinutos: number }> {
-    const valor = (entrada as { enlaceEsperaMinutos?: unknown } | null | undefined)?.enlaceEsperaMinutos
-    if (typeof valor !== 'number' || !Number.isInteger(valor) || valor < 0 || valor > 1440) throw new AppError('DATOS_INVALIDOS')
-    await ajustes.updateOne({ _id: 'general' }, { $set: { enlaceEsperaMinutos: valor } }, { upsert: true })
-    return { enlaceEsperaMinutos: valor }
+  const esperaMinutos = async (): Promise<number> => (await leerAjustes()).enlaceEsperaMinutos
+  const obtenerAjustes = leerAjustes
+
+  async function guardarAjustes(entrada: unknown): Promise<{ enlaceEsperaMinutos: number; nombre: string }> {
+    const cuerpo = (entrada ?? {}) as { enlaceEsperaMinutos?: unknown; nombre?: unknown }
+    const cambios: { enlaceEsperaMinutos?: number; nombre?: string } = {}
+    if (cuerpo.enlaceEsperaMinutos !== undefined) {
+      const v = cuerpo.enlaceEsperaMinutos
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 1440) throw new AppError('DATOS_INVALIDOS')
+      cambios.enlaceEsperaMinutos = v
+    }
+    if (cuerpo.nombre !== undefined) {
+      const n = nombreValido(cuerpo.nombre)
+      if (n === null) throw new AppError('DATOS_INVALIDOS')
+      cambios.nombre = n
+    }
+    if (Object.keys(cambios).length === 0) throw new AppError('DATOS_INVALIDOS')
+    await ajustes.updateOne({ _id: 'general' }, { $set: cambios }, { upsert: true })
+    return leerAjustes()
   }
 
   const vigencia = (desde: Date) => new Date(desde.getTime() + config.enlaceVigenciaHoras * 3_600_000)

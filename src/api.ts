@@ -92,7 +92,7 @@ export function createApi(fetchImpl: typeof fetch = (...a) => globalThis.fetch(.
     sesion: () => pedir<SesionCaja>('/caja/sesion').catch((e: unknown) => (e instanceof ApiError && e.status === 401 ? null : Promise.reject(e))),
     resumen: () => pedir<Resumen>('/caja/resumen'),
     ajustes: () => pedir<Ajustes>('/caja/ajustes'),
-    guardarAjustes: (ajustes: Ajustes) => put<Ajustes>('/caja/ajustes', ajustes),
+    guardarAjustes: (ajustes: Partial<Ajustes>) => put<Ajustes>('/caja/ajustes', ajustes),
     movimientos: () => pedir<Movimiento[]>('/caja/movimientos'),
     fidelizar: (whatsapp: string) => post<Fidelizacion>('/caja/fidelizar', { whatsapp }),
     buscar: (q: string) => pedir<ClienteCaja>(`/caja/buscar?q=${enc(q)}`),

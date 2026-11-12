@@ -6,7 +6,8 @@ import type { SesionCaja } from '../tipos.ts'
 import Phone from '../components/Phone.tsx'
 import { Aviso, Cargando } from '../components/Estado.tsx'
 
-export const useCaja = () => useOutletContext<SesionCaja>()
+export type CajaCtx = SesionCaja & { recargar: () => void }
+export const useCaja = () => useOutletContext<CajaCtx>()
 
 export default function CajaGate() {
   const { datos, error, cargando, recargar } = useCarga(() => api.sesion(), [])
@@ -15,7 +16,7 @@ export default function CajaGate() {
 
   if (error) return <Phone className="items-center justify-center px-8 text-center"><Aviso>No se pudo comprobar la sesión.</Aviso></Phone>
   if (cargando) return <Cargando />
-  if (datos) return <Outlet context={datos} />
+  if (datos) return <Outlet context={{ ...datos, recargar } satisfies CajaCtx} />
 
   const entrar = async (e: React.FormEvent) => {
     e.preventDefault()
