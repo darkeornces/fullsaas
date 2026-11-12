@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #F6F2EA;
+  --color-ink: #14231C;
+  --color-green: #1F4D3A;
+  --color-accent: #FF5B2E;
+  --color-muted: #5B6760;
+  --color-surface: #FFFFFF;
+  --color-line: #E2DACB;
+  --color-mint: #D8E8DC;
+  --color-sun: #F4C542;
+  --font-head: "Bricolage Grotesque", sans-serif;
+  --font-sans: "Inter", sans-serif;
+}
+
+body {
+  @apply bg-bg text-ink font-sans antialiased;
+}

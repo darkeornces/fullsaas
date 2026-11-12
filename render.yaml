@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: fidelhop
+    runtime: docker
+    plan: free
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DB_NAME
+        value: fidelhop
+      - key: TZ_COMERCIO
+        value: Europe/Madrid
+      - key: SESSION_SECRET
+        generateValue: true
+      # Secretos: Render los pide al crear el Blueprint (nunca van en el repositorio).
+      - key: CAJA_PIN
+        sync: false
+      - key: MONGO_URL
+        sync: false
+      - key: BASE_URL
+        sync: false
